@@ -1,0 +1,22 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Company>James Matthews</Company>
+    <AssemblyCompany>James Matthews</AssemblyCompany>
+    <Authors>James Matthews</Authors>
+    <Product>AutoComputer</Product>
+    <AssemblyTitle>AutoComputer</AssemblyTitle>
+    <ApplicationTitle>AutoComputer</ApplicationTitle>
+    <Description>Local voice-control application for launching apps and performing simple PC tasks.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Speech" Version="8.0.0" />
+  </ItemGroup>
+
+</Project>
