@@ -8,4 +8,8 @@
     <AssemblyName>AutoComputer</AssemblyName>
     <RootNamespace>AutoComputer</RootNamespace>
   </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Speech" Version="8.0.0" />
+  </ItemGroup>
 </Project>
