@@ -15,6 +15,7 @@ public partial class Form1
         try
         {
             Process.Start(new ProcessStartInfo("https://www.microsoft.com") { UseShellExecute = true });
+            lastTarget = "browser";
             AddLog("Opened browser.", true);
             SpeakActionMessage("open", "the browser");
         }
@@ -37,6 +38,7 @@ public partial class Form1
             }
 
             Process.Start(appName);
+            lastTarget = appName;
             AddLog($"Opened {appName}.", true);
             SpeakActionMessage("open", appName);
         }
@@ -66,6 +68,7 @@ public partial class Form1
                 process.Kill();
             }
 
+            lastTarget = "browser";
             AddLog("Closed browser.", true);
             SpeakActionMessage("close", "the browser");
         }
@@ -104,6 +107,7 @@ public partial class Form1
             }
         }
 
+        lastTarget = appName;
         AddLog($"Closed {appName}.", true);
         SpeakActionMessage("close", appName);
     }
@@ -199,6 +203,7 @@ private IntPtr GetCalculatorWindowHandle()
                 UseShellExecute = true
             });
 
+            lastTarget = "browser";
             AddLog($"Searching the web for: {query}", true);
             SpeakActionMessage("open", $"search results for {query}");
         }
@@ -230,6 +235,7 @@ private IntPtr GetCalculatorWindowHandle()
                 UseShellExecute = true
             });
 
+            lastTarget = target;
             AddLog($"Opening website: {target}", true);
             SpeakActionMessage("open", target);
         }
