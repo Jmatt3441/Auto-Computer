@@ -95,6 +95,50 @@ public partial class Form1
     private void ExecuteCommand(string command)
     {
         string lowerCommand = command.ToLowerInvariant();
+        lastCommand = command;
+
+        if (TryHandleConversation(command, lowerCommand))
+            return;
+
+        if (lowerCommand is "close it" or "close that")
+        {
+            if (string.IsNullOrWhiteSpace(lastTarget))
+            {
+                AddLog("I do not have a recent target to close.", true);
+            }
+            else if (lastTarget.Equals("browser", StringComparison.OrdinalIgnoreCase))
+            {
+                CloseBrowser();
+            }
+            else
+            {
+                CloseApp(lastTarget);
+            }
+
+            return;
+        }
+
+        if (lowerCommand is "open it again" or "open that again")
+        {
+            if (string.IsNullOrWhiteSpace(lastTarget))
+            {
+                AddLog("I do not have a recent target to reopen.", true);
+            }
+            else if (lastTarget.Equals("browser", StringComparison.OrdinalIgnoreCase))
+            {
+                OpenBrowser();
+            }
+            else if (lastTarget.Contains(".") && !lastTarget.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+            {
+                OpenWebsite(lastTarget);
+            }
+            else
+            {
+                OpenApp(lastTarget);
+            }
+
+            return;
+        }
 
         if (lowerCommand.StartsWith("remember "))
         {
@@ -283,6 +327,120 @@ public partial class Form1
         AddLog("Command not recognized yet. Use: remember <phrase> => <action>", true);
         }
         
+
+
+    // Handles conversational commands that are not direct PC actions.
+    private bool TryHandleConversation(string command, string lowerCommand)
+    {
+        if (lowerCommand.StartsWith("my name is "))
+        {
+            string name = command.Substring("my name is ".Length).Trim();
+
+            if (!string.IsNullOrWhiteSpace(name))
+            {
+                assistantMemory.UserName = name;
+                assistantMemory.Save(assistantMemoryPath);
+                AddLog($"I will remember that your name is {name}.", true);
+            }
+
+            return true;
+        }
+
+        if (lowerCommand is "what is my name" or "what's my name" or "do you know my name")
+        {
+            if (string.IsNullOrWhiteSpace(assistantMemory.UserName))
+                AddLog("You have not told me your name yet.", true);
+            else
+                AddLog($"Your name is {assistantMemory.UserName}.", true);
+
+            return true;
+        }
+
+        if (lowerCommand.StartsWith("your name is "))
+        {
+            string name = command.Substring("your name is ".Length).Trim();
+
+            if (!string.IsNullOrWhiteSpace(name))
+            {
+                assistantMemory.AssistantName = name;
+                assistantMemory.Save(assistantMemoryPath);
+                AddLog($"Understood. You can call me {name}.", true);
+            }
+
+            return true;
+        }
+
+        if (lowerCommand is "who are you" or "what is your name" or "what's your name")
+        {
+            AddLog($"I am {assistantMemory.AssistantName}, your AutoComputer assistant.", true);
+            return true;
+        }
+
+        if (lowerCommand.StartsWith("remember that "))
+        {
+            string note = command.Substring("remember that ".Length).Trim();
+
+            if (!string.IsNullOrWhiteSpace(note))
+            {
+                assistantMemory.Notes.Add(note);
+                assistantMemory.Save(assistantMemoryPath);
+                AddLog("I will remember that.", true);
+            }
+
+            return true;
+        }
+
+        if (lowerCommand is "what do you remember" or "show memories" or "show my memories")
+        {
+            if (assistantMemory.Notes.Count == 0)
+            {
+                AddLog("I do not have any personal notes stored yet.", true);
+            }
+            else
+            {
+                AddLog($"I remember {assistantMemory.Notes.Count} personal note(s).", false);
+
+                foreach (string note in assistantMemory.Notes)
+                    AddLog($"Memory: {note}", false);
+
+                Speak("I displayed what I remember in the log.");
+            }
+
+            return true;
+        }
+
+        if (lowerCommand is "hello" or "hi" or "hey")
+        {
+            string response = string.IsNullOrWhiteSpace(assistantMemory.UserName)
+                ? $"Hello. {assistantMemory.AssistantName} is ready."
+                : $"Hello {assistantMemory.UserName}. What can I do for you?";
+
+            AddLog(response, true);
+            return true;
+        }
+
+        if (lowerCommand is "how are you" or "how are you?")
+        {
+            AddLog("All systems are running normally. I am ready when you are.", true);
+            return true;
+        }
+
+        if (lowerCommand is "thank you" or "thanks")
+        {
+            AddLog("Anytime.", true);
+            return true;
+        }
+
+        if (lowerCommand is "what was my last command" or "what did i just say")
+        {
+            AddLog(string.IsNullOrWhiteSpace(lastCommand)
+                ? "You have not given me a command yet."
+                : $"Your last command was: {lastCommand}", true);
+            return true;
+        }
+
+        return false;
+    }
 
     private static readonly string[] CalculatorInputPrefixes =
     {
