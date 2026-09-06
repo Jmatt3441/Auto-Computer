@@ -95,7 +95,9 @@ public partial class Form1
             commands.Add(new[]
             {
                 "Hal wake up",
-                "Hal wake"
+                "Hal wake",
+                "Computer wake up",
+                "Computer wake"
             });
         }
         else
@@ -103,6 +105,7 @@ public partial class Form1
             commands.Add(new[]
             {
                 "Hal open browser",
+                "Computer open browser",
                 "Hal close browser",
                 "Hal close web browser",
                 "Hal close the browser",
@@ -127,7 +130,22 @@ public partial class Form1
                 "Hal wake up",
                 "Hal wake",
                 "Hal write file hello world",
-                "Hal remember open notes => open notepad"
+                "Hal remember open notes => open notepad",
+                "Computer open calculator",
+                "Computer open notepad",
+                "Computer close calculator",
+                "Computer close notepad",
+                "Computer show time",
+                "Computer go to sleep",
+                "Computer sleep",
+                "Computer wake up",
+                "Computer wake",
+                "Computer who are you",
+                "Computer how are you",
+                "Computer what is my name",
+                "Computer what do you remember",
+                "Computer close it",
+                "Computer open it again"
             });
 
             // These are example spoken phrases that Hal should recognize. The user can also teach Hal new commands, which are added to the grammar dynamically.
@@ -148,6 +166,7 @@ public partial class Form1
                 foreach (var trigger in learnedCommands.Keys)
                 {
                     commands.Add($"Hal {trigger}");
+                    commands.Add($"Computer {trigger}");
                 }
             }
         }
@@ -155,6 +174,19 @@ public partial class Form1
         var builder = new GrammarBuilder(commands);
         var grammar = new Grammar(builder);
         speechRecognizer.LoadGrammar(grammar);
+
+        // Dictation allows natural phrases after the wake word instead of
+        // requiring every possible sentence to be hard-coded.
+        if (!wakeOnly)
+        {
+            try
+            {
+                speechRecognizer.LoadGrammar(new DictationGrammar());
+            }
+            catch
+            {
+            }
+        }
 
         //Allows Hal to recognize variable calculator commands
         var calculatorBuilder = new GrammarBuilder();
@@ -188,19 +220,22 @@ public partial class Form1
 
             if (!isListeningEnabled)
             {
-                if (spokenCommand.StartsWith("Hal ", StringComparison.OrdinalIgnoreCase))
-                {
-                    string commandWithoutWakeWord = spokenCommand.Substring(4).Trim();
+                string? commandWithoutWakeWord = null;
 
-                    if (commandWithoutWakeWord.Equals("wake up", StringComparison.OrdinalIgnoreCase) ||
-                        commandWithoutWakeWord.Equals("wake", StringComparison.OrdinalIgnoreCase))
-                    {
-                        WakeUp();
-                        return;
-                    }
+                if (spokenCommand.StartsWith("Hal ", StringComparison.OrdinalIgnoreCase))
+                    commandWithoutWakeWord = spokenCommand.Substring(4).Trim();
+                else if (spokenCommand.StartsWith("Computer ", StringComparison.OrdinalIgnoreCase))
+                    commandWithoutWakeWord = spokenCommand.Substring("Computer ".Length).Trim();
+
+                if (commandWithoutWakeWord != null &&
+                    (commandWithoutWakeWord.Equals("wake up", StringComparison.OrdinalIgnoreCase) ||
+                     commandWithoutWakeWord.Equals("wake", StringComparison.OrdinalIgnoreCase)))
+                {
+                    WakeUp();
+                    return;
                 }
 
-                AddLog("Hal is asleep. Say 'Hal wake up' to resume listening.", true);
+                AddLog("Hal is asleep. Say 'Hal wake up' or 'Computer wake up' to resume listening.", true);
                 return;
             }
 
@@ -209,9 +244,14 @@ public partial class Form1
                 string commandWithoutWakeWord = spokenCommand.Substring(4).Trim();
                 ExecuteCommand(commandWithoutWakeWord);
             }
+            else if (spokenCommand.StartsWith("Computer ", StringComparison.OrdinalIgnoreCase))
+            {
+                string commandWithoutWakeWord = spokenCommand.Substring("Computer ".Length).Trim();
+                ExecuteCommand(commandWithoutWakeWord);
+            }
             else
             {
-                AddLog("Say 'Hal' first to activate voice control.", true);
+                AddLog("Say 'Hal' or 'Computer' first to activate voice control.", true);
             }
         }
     }
