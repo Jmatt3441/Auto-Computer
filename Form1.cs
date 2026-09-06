@@ -18,15 +18,25 @@ public partial class Form1 : Form
     private System.Speech.Synthesis.SpeechSynthesizer? speechSynthesizer;
     private readonly Dictionary<string, string> learnedCommands = new(StringComparer.OrdinalIgnoreCase);
     private readonly string memoryFilePath;
+    private readonly string assistantMemoryPath;
+    private readonly AssistantMemory assistantMemory;
     private bool isListeningEnabled = true;
+    private string? lastTarget;
+    private string? lastCommand;
 
     public Form1()
     {
         // This is the standard WinForms setup call.
         InitializeComponent();
 
-        // Store the location where learned commands are saved.
-        memoryFilePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AutoComputer", "commands.txt");
+        // Store the location where learned commands and conversational memory are saved.
+        string localFolder = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "AutoComputer");
+
+        memoryFilePath = Path.Combine(localFolder, "commands.txt");
+        assistantMemoryPath = Path.Combine(localFolder, "assistant-memory.json");
+        assistantMemory = AssistantMemory.Load(assistantMemoryPath);
 
         // Build the user interface from the separate layout helper.
         InitializeFormLayout();
@@ -35,7 +45,13 @@ public partial class Form1 : Form
         InitializeSpeechSynthesizer();
         LoadMemory();
         InitializeVoiceRecognition();
-        Speak("Hal is ready");
+
+        string greeting = string.IsNullOrWhiteSpace(assistantMemory.UserName)
+            ? $"{assistantMemory.AssistantName} is ready."
+            : $"Hello {assistantMemory.UserName}. {assistantMemory.AssistantName} is ready.";
+
+        AddLog(greeting, false);
+        Speak(greeting);
     }
 
     // This event runs when the user clicks the button to start listening for voice commands.
