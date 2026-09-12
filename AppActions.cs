@@ -2,14 +2,19 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
-using System.Windows.Forms;
 
 namespace AutoComputer;
 
-// This file contains actions that launch, close, switch, or create files.
 public partial class Form1
 {
-    // This opens the default browser to a known website.
+    private const int SW_RESTORE = 9;
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
+
     private void OpenBrowser()
     {
         try
@@ -25,19 +30,34 @@ public partial class Form1
         }
     }
 
-    // This opens a program by name and says a random opening message.
     private void OpenApp(string appName)
     {
         try
         {
-            if (IsAppRunning(appName))
+            if (IsCalculatorName(appName))
             {
-                AddLog($"{appName} is already running.", true);
-                SpeakActionMessage("open", appName);
+                if (IsCalculatorOpen())
+                {
+                    AddLog("Calculator is already open.", true);
+                    SwitchToCalculator();
+                    return;
+                }
+
+                Process.Start(new ProcessStartInfo("calc.exe") { UseShellExecute = true });
+                lastTarget = "calculator";
+                AddLog("Opened calculator.", true);
+                SpeakActionMessage("open", "calculator");
                 return;
             }
 
-            Process.Start(appName);
+            if (IsAppRunning(appName))
+            {
+                AddLog($"{appName} is already running.", true);
+                SwitchToApp(appName);
+                return;
+            }
+
+            Process.Start(new ProcessStartInfo(appName) { UseShellExecute = true });
             lastTarget = appName;
             AddLog($"Opened {appName}.", true);
             SpeakActionMessage("open", appName);
@@ -48,24 +68,30 @@ public partial class Form1
         }
     }
 
-    // This closes the common browser processes that are currently running.
     private void CloseBrowser()
     {
         try
         {
-            foreach (var process in Process.GetProcessesByName("chrome"))
+            bool foundBrowser = false;
+            string[] browserProcesses = { "chrome", "firefox", "msedge" };
+
+            foreach (string processName in browserProcesses)
             {
-                process.Kill();
+                foreach (Process process in Process.GetProcessesByName(processName))
+                {
+                    foundBrowser = true;
+                    try
+                    {
+                        if (!process.CloseMainWindow()) process.Kill();
+                    }
+                    catch { }
+                }
             }
 
-            foreach (var process in Process.GetProcessesByName("firefox"))
+            if (!foundBrowser)
             {
-                process.Kill();
-            }
-
-            foreach (var process in Process.GetProcessesByName("msedge"))
-            {
-                process.Kill();
+                AddLog("No supported browser is currently open.", true);
+                return;
             }
 
             lastTarget = "browser";
@@ -78,52 +104,109 @@ public partial class Form1
         }
     }
 
-    // This closes any app that is currently running by using its process name.
     private void CloseApp(string appName)
     {
-        string processName = NormalizeAppName(appName);
-        var processes = Process.GetProcessesByName(processName);
-
-        if (processes.Length == 0)
+        try
         {
-            AddLog($"{appName} is not running.", true);
-            return;
-        }
-
-        foreach (var process in processes)
-        {
-            try
+            if (IsCalculatorName(appName))
             {
-                if (!process.CloseMainWindow())
+                CloseCalculator();
+                return;
+            }
+
+            string processName = NormalizeAppName(appName);
+            Process[] processes = Process.GetProcessesByName(processName);
+
+            if (processes.Length == 0)
+            {
+                AddLog($"{appName} is not running.", true);
+                return;
+            }
+
+            bool closedAny = false;
+            foreach (Process process in processes)
+            {
+                try
                 {
-                    process.Kill();
+                    if (!process.CloseMainWindow()) process.Kill();
+                    closedAny = true;
                 }
+                catch (Exception ex)
+                {
+                    AddLog($"Could not close {appName}: {ex.Message}", true);
+                }
+            }
 
-                process.WaitForExit(3000);
-            }
-            catch (Exception ex)
-            {
-                AddLog($"Could not close {appName}: {ex.Message}", true);
-            }
+            if (!closedAny) return;
+            lastTarget = appName;
+            AddLog($"Closed {appName}.", true);
+            SpeakActionMessage("close", appName);
         }
-
-        lastTarget = appName;
-        AddLog($"Closed {appName}.", true);
-        SpeakActionMessage("close", appName);
+        catch (Exception ex)
+        {
+            AddLog($"Could not close {appName}: {ex.Message}", true);
+        }
     }
 
-    // This checks whether a process with the requested name is already running.
+    private void CloseCalculator()
+    {
+        try
+        {
+            foreach (Process process in Process.GetProcessesByName("ApplicationFrameHost"))
+            {
+                try
+                {
+                    if (process.MainWindowHandle != IntPtr.Zero &&
+                        process.MainWindowTitle.Contains("Calculator", StringComparison.OrdinalIgnoreCase))
+                    {
+                        process.CloseMainWindow();
+                        lastTarget = "calculator";
+                        AddLog("Closed calculator.", true);
+                        SpeakActionMessage("close", "calculator");
+                        return;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    AddLog($"Could not close calculator: {ex.Message}", true);
+                    return;
+                }
+            }
+
+            foreach (string processName in new[] { "CalculatorApp", "Calculator" })
+            {
+                foreach (Process process in Process.GetProcessesByName(processName))
+                {
+                    try
+                    {
+                        if (process.MainWindowHandle == IntPtr.Zero) continue;
+                        if (!process.CloseMainWindow()) process.Kill();
+                        lastTarget = "calculator";
+                        AddLog("Closed calculator.", true);
+                        SpeakActionMessage("close", "calculator");
+                        return;
+                    }
+                    catch { }
+                }
+            }
+
+            AddLog("Calculator is not open.", true);
+        }
+        catch (Exception ex)
+        {
+            AddLog($"Could not close calculator: {ex.Message}", true);
+        }
+    }
+
     private bool IsAppRunning(string appName)
     {
-        string processName = NormalizeAppName(appName);
-        return Process.GetProcessesByName(processName).Length > 0;
+        if (IsCalculatorName(appName)) return IsCalculatorOpen();
+        return Process.GetProcessesByName(NormalizeAppName(appName)).Length > 0;
     }
 
-    // This converts friendly names like "notepad" or "word" into the correct Windows process name.
     private string NormalizeAppName(string appName)
     {
         string normalized = appName.Trim().ToLowerInvariant();
-
         return normalized switch
         {
             "notepad" or "notepad.exe" or "windows notepad" => "notepad",
@@ -136,73 +219,106 @@ public partial class Form1
         };
     }
 
-private const int SW_RESTORE = 9;
-
-[DllImport("user32.dll", SetLastError = true)]
-private static extern bool SetForegroundWindow(IntPtr hWnd);
-
-[DllImport("user32.dll")]
-private static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
-
-private bool IsCalculatorOpen()
-{
-    return GetCalculatorWindowHandle() != IntPtr.Zero;
-}
-
-private IntPtr GetCalculatorWindowHandle()
-{
-    var calculatorProcesses = Process.GetProcessesByName("Calculator");
-    if (calculatorProcesses.Length == 0)
-        calculatorProcesses = Process.GetProcessesByName("calc");
-
-    foreach (var process in calculatorProcesses)
+    private static bool IsCalculatorName(string appName)
     {
-        if(process.MainWindowHandle != IntPtr.Zero)
-            return process.MainWindowHandle;
-    }    
-
-    return IntPtr.Zero;
-}
-
-    // This checks whether a program is already running and prepares to switch to it.
-    private void SwitchToApp(string appName)
-    {
-        string processName = Path.GetFileNameWithoutExtension(appName);
-        var processes = Process.GetProcessesByName(processName);
-
-        if (processes.Length > 0)
-        {
-            AddLog($"Switched to {appName}.", true);
-            SpeakActionMessage("switch", appName);
-        }
-        else
-        {
-            AddLog($"{appName} is not running.", true);
-        }
+        string normalized = appName.Trim().ToLowerInvariant();
+        return normalized is "calculator" or "calc" or "calc.exe" or "windows calculator";
     }
 
-    // This creates a simple text file on the desktop with the provided content.
+    private bool IsCalculatorOpen() => GetCalculatorWindowHandle() != IntPtr.Zero;
+
+    private IntPtr GetCalculatorWindowHandle()
+    {
+        foreach (Process process in Process.GetProcessesByName("ApplicationFrameHost"))
+        {
+            try
+            {
+                if (process.MainWindowHandle != IntPtr.Zero &&
+                    process.MainWindowTitle.Contains("Calculator", StringComparison.OrdinalIgnoreCase))
+                    return process.MainWindowHandle;
+            }
+            catch { }
+        }
+
+        foreach (string processName in new[] { "CalculatorApp", "Calculator" })
+        {
+            foreach (Process process in Process.GetProcessesByName(processName))
+            {
+                try
+                {
+                    if (process.MainWindowHandle != IntPtr.Zero) return process.MainWindowHandle;
+                }
+                catch { }
+            }
+        }
+        return IntPtr.Zero;
+    }
+
+    private void SwitchToCalculator()
+    {
+        IntPtr calculatorWindow = GetCalculatorWindowHandle();
+        if (calculatorWindow == IntPtr.Zero)
+        {
+            AddLog("Calculator is not open.", true);
+            return;
+        }
+        ShowWindowAsync(calculatorWindow, SW_RESTORE);
+        SetForegroundWindow(calculatorWindow);
+    }
+
+    private void SwitchToApp(string appName)
+    {
+        if (IsCalculatorName(appName))
+        {
+            SwitchToCalculator();
+            return;
+        }
+
+        Process[] processes = Process.GetProcessesByName(NormalizeAppName(appName));
+        if (processes.Length == 0)
+        {
+            AddLog($"{appName} is not running.", true);
+            return;
+        }
+
+        foreach (Process process in processes)
+        {
+            try
+            {
+                if (process.MainWindowHandle == IntPtr.Zero) continue;
+                ShowWindowAsync(process.MainWindowHandle, SW_RESTORE);
+                SetForegroundWindow(process.MainWindowHandle);
+                lastTarget = appName;
+                AddLog($"Switched to {appName}.", true);
+                SpeakActionMessage("switch", appName);
+                return;
+            }
+            catch { }
+        }
+        AddLog($"{appName} is running, but HAL could not find its window.", true);
+    }
+
     private void WriteNoteFile(string content)
     {
-        string desktopPath = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
-        string filePath = Path.Combine(desktopPath, "AutoComputerNote.txt");
-
-        File.WriteAllText(filePath, content);
-        AddLog($"Created note file: {filePath}", true);
+        try
+        {
+            string desktopPath = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+            string filePath = Path.Combine(desktopPath, "AutoComputerNote.txt");
+            File.WriteAllText(filePath, content);
+            AddLog($"Created note file: {filePath}", true);
+        }
+        catch (Exception ex)
+        {
+            AddLog($"Could not create note: {ex.Message}", true);
+        }
     }
 
     private void SearchWeb(string query)
     {
         try
         {
-            string encodedQuery = Uri.EscapeDataString(query);
-            string url = $"https://www.google.com/search?q={encodedQuery}";
-
-            Process.Start(new ProcessStartInfo(url)
-            {
-                UseShellExecute = true
-            });
-
+            string url = $"https://www.google.com/search?q={Uri.EscapeDataString(query)}";
+            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
             lastTarget = "browser";
             AddLog($"Searching the web for: {query}", true);
             SpeakActionMessage("open", $"search results for {query}");
@@ -213,15 +329,11 @@ private IntPtr GetCalculatorWindowHandle()
         }
     }
 
-    // Open the requested website in the default browser.
-    // The raw target can be a simple site name like "facebook",
-    // a full address like "https://www.example.com", or a phrase.
     private void OpenWebsite(string rawTarget)
     {
         try
         {
             string target = rawTarget.Trim();
-
             if (string.IsNullOrEmpty(target))
             {
                 AddLog("No website specified.", true);
@@ -229,12 +341,7 @@ private IntPtr GetCalculatorWindowHandle()
             }
 
             string url = BuildWebsiteUrl(target);
-
-            Process.Start(new ProcessStartInfo(url)
-            {
-                UseShellExecute = true
-            });
-
+            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
             lastTarget = target;
             AddLog($"Opening website: {target}", true);
             SpeakActionMessage("open", target);
@@ -245,39 +352,21 @@ private IntPtr GetCalculatorWindowHandle()
         }
     }
 
-    // Build a safe URL from the target text.
-    // - If the user already provided a full URL, use it directly.
-    // - If the user gave a plain name like "google", convert it to "https://www.google.com".
-    // - If the user gave a multi-word phrase, search it on Google.
     private string BuildWebsiteUrl(string target)
     {
         target = target.Trim();
-
-        if (target.Contains("://", StringComparison.OrdinalIgnoreCase))
-            return target;
-
-        if (target.Contains(" "))
-            return "https://www.google.com/search?q=" + Uri.EscapeDataString(target);
-
-        if (!target.StartsWith("www.", StringComparison.OrdinalIgnoreCase))
-            target = "www." + target;
-
-        if (!HasKnownDomainSuffix(target))
-            target += ".com";
-
+        if (target.Contains("://", StringComparison.OrdinalIgnoreCase)) return target;
+        if (target.Contains(" ")) return "https://www.google.com/search?q=" + Uri.EscapeDataString(target);
+        if (!target.StartsWith("www.", StringComparison.OrdinalIgnoreCase)) target = "www." + target;
+        if (!HasKnownDomainSuffix(target)) target += ".com";
         return "https://" + target;
     }
 
     private static bool HasKnownDomainSuffix(string target)
     {
         string[] knownSuffixes = { ".com", ".org", ".net", ".edu", ".gov", ".io", ".co", ".uk", ".us", ".ca", ".dev", ".ai" };
-
         foreach (string suffix in knownSuffixes)
-        {
-            if (target.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
-                return true;
-        }
-
+            if (target.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)) return true;
         return false;
     }
 }
