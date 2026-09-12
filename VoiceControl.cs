@@ -1,289 +1,221 @@
 using System;
+using System.Globalization;
+using System.Linq;
 using System.Speech.Recognition;
 using System.Speech.Synthesis;
 
 namespace AutoComputer;
 
-// This file handles speech recognition, speech output, and log display.
 public partial class Form1
 {
-    // This prepares the speech output system so Hal can talk back to the user.
+    private const float MinimumVoiceConfidence = 0.55f;
+
     private void InitializeSpeechSynthesizer()
     {
         try
         {
             speechSynthesizer = new SpeechSynthesizer();
             speechSynthesizer.SetOutputToDefaultAudioDevice();
+            speechSynthesizer.Volume = 100;
+            speechSynthesizer.Rate = 0;
         }
-        catch
-        {
-            speechSynthesizer = null;
-        }
+        catch { speechSynthesizer = null; }
     }
 
-    // This sets up the microphone-based voice recognizer and connects it to the command handler.
+    private void Speak(string message)
+    {
+        if (speechSynthesizer == null || string.IsNullOrWhiteSpace(message)) return;
+        try
+        {
+            speechSynthesizer.SpeakAsyncCancelAll();
+            speechSynthesizer.SpeakAsync(message);
+        }
+        catch { }
+    }
+
+    private void AddLog(string message, bool speak = false)
+    {
+        try
+        {
+            if (logListBox.InvokeRequired)
+            {
+                logListBox.Invoke(new Action(() => AddLog(message, speak)));
+                return;
+            }
+            logListBox.Items.Add($"{DateTime.Now:HH:mm:ss} - {message}");
+            if (logListBox.Items.Count > 50) logListBox.Items.RemoveAt(0);
+            if (logListBox.Items.Count > 0) logListBox.TopIndex = logListBox.Items.Count - 1;
+            if (speak) Speak(message);
+        }
+        catch { }
+    }
+
     private void InitializeVoiceRecognition()
     {
+        if (speechRecognizer != null)
+        {
+            AddLog("HAL voice control is already running.", false);
+            return;
+        }
+
         try
         {
-            speechRecognizer = new SpeechRecognitionEngine(new System.Globalization.CultureInfo("en-US"));
+            speechRecognizer = new SpeechRecognitionEngine(new CultureInfo("en-US"));
+            speechRecognizer.InitialSilenceTimeout = TimeSpan.FromSeconds(4);
+            speechRecognizer.BabbleTimeout = TimeSpan.FromSeconds(2);
+            speechRecognizer.EndSilenceTimeout = TimeSpan.FromMilliseconds(600);
+            speechRecognizer.EndSilenceTimeoutAmbiguous = TimeSpan.FromMilliseconds(900);
+            speechRecognizer.MaxAlternates = 5;
             UpdateGrammar();
             speechRecognizer.SpeechRecognized += SpeechRecognizer_SpeechRecognized;
+            speechRecognizer.SpeechRecognitionRejected += SpeechRecognizer_SpeechRecognitionRejected;
             speechRecognizer.SetInputToDefaultAudioDevice();
-            AddLog("Voice recognition ready.", true);
-        }
-        catch (Exception ex)
-        {
-            AddLog($"Voice recognition setup failed: {ex.Message}", true);
-        }
-    }
-
-    // This stops listening for normal commands and leaves Hal ready to wake on a wake phrase.
-    private void EnterSleepMode()
-    {
-        isListeningEnabled = false;
-
-        try
-        {
-            UpdateGrammar(wakeOnly: true);
-            speechRecognizer?.RecognizeAsync(RecognizeMode.Multiple);
-        }
-        catch
-        {
-        }
-
-        AddLog("Hal is going to sleep.", false);
-        SpeakSleepResponse();
-    }
-
-    // This wakes Hal up and starts listening again.
-    private void WakeUp()
-    {
-        if (speechRecognizer == null)
-        {
-            AddLog("Voice recognition is not available on this machine.", true);
-            return;
-        }
-
-        isListeningEnabled = true;
-
-        try
-        {
-            UpdateGrammar();
             speechRecognizer.RecognizeAsync(RecognizeMode.Multiple);
-            AddLog("Hal is awake again.", true);
-            Speak("I am awake and ready.");
+            AddLog("HAL voice recognition is online.", false);
         }
         catch (Exception ex)
         {
-            AddLog($"Could not resume listening: {ex.Message}", true);
+            AddLog($"Voice recognition failed: {ex.Message}", false);
         }
     }
 
-    // This rebuilds the speech grammar so the recognizer knows about built-in and learned commands.
     private void UpdateGrammar(bool wakeOnly = false)
     {
-        if (speechRecognizer == null)
-            return;
-
+        if (speechRecognizer == null) return;
         speechRecognizer.UnloadAllGrammars();
-
-        var commands = new Choices();
 
         if (wakeOnly)
         {
-            commands.Add(new[]
-            {
-                "Hal wake up",
-                "Hal wake",
-                "Computer wake up",
-                "Computer wake"
-            });
+            Choices wakeCommands = new Choices("Hal wake up", "Hal wake", "Computer wake up", "Computer wake");
+            speechRecognizer.LoadGrammar(new Grammar(new GrammarBuilder(wakeCommands)));
+            return;
         }
-        else
+
+        Choices commands = new Choices();
+        commands.Add(new[]
         {
-            commands.Add(new[]
-            {
-                "Hal open browser",
-                "Computer open browser",
-                "Hal close browser",
-                "Hal close web browser",
-                "Hal close the browser",
-                "close browser",
+            "Hal open browser", "Computer open browser",
+            "Hal close browser", "Computer close browser",
+            "Hal close the browser", "Computer close the browser",
+            "Hal close web browser", "Computer close web browser",
+            "Hal close the web browser", "Computer close the web browser",
+            "Hal open calculator", "Computer open calculator",
+            "Hal close calculator", "Computer close calculator",
+            "Hal open notepad", "Computer open notepad",
+            "Hal close notepad", "Computer close notepad",
+            "Hal open word", "Computer open word",
+            "Hal close word", "Computer close word",
+            "Hal show time", "Computer show time",
+            "Hal what time is it", "Computer what time is it",
+            "Hal go to sleep", "Computer go to sleep",
+            "Hal sleep", "Computer sleep",
+            "Hal wake up", "Computer wake up",
+            "Hal wake", "Computer wake",
+            "Hal close it", "Computer close it",
+            "Hal open it again", "Computer open it again",
+            "Hal who are you", "Computer who are you",
+            "Hal how are you", "Computer how are you",
+            "Hal what is my name", "Computer what is my name",
+            "Hal what do you remember", "Computer what do you remember",
+            "Hal thank you", "Computer thank you",
+            "Hal thanks", "Computer thanks"
+        });
 
-                "Hal close notepad",
-
-                "Hal close calculator",
-                "Hal close the calculator",
-                "Hal close calc",
-                "Hal exit calculator",
-
-                "Hal close word",
-                "Hal search the web for cats",
-                "Hal search web for cats",
-                "Hal open notepad",
-                "Hal open calculator",
-                "Hal open word",
-                "Hal show time",
-                "Hal go to sleep",
-                "Hal sleep",
-                "Hal wake up",
-                "Hal wake",
-                "Hal write file hello world",
-                "Hal remember open notes => open notepad",
-                "Computer open calculator",
-                "Computer open notepad",
-                "Computer close calculator",
-                "Computer close notepad",
-                "Computer show time",
-                "Computer go to sleep",
-                "Computer sleep",
-                "Computer wake up",
-                "Computer wake",
-                "Computer who are you",
-                "Computer how are you",
-                "Computer what is my name",
-                "Computer what do you remember",
-                "Computer close it",
-                "Computer open it again"
-            });
-
-            // These are example spoken phrases that Hal should recognize. The user can also teach Hal new commands, which are added to the grammar dynamically.
-            // Add one or more voice examples so the speech recognizer learns
-            // the new "goto" website commands.
-            commands.Add(new[]
-            {
-                "Hal go to google",
-                "Hal go to facebook",
-                "Hal go to youtube",
-                "Hal go to twitter",
-                "Hal go to github",
-                "Hal go to stackoverflow"
-            });
-
-            if (learnedCommands.Any())
-            {
-                foreach (var trigger in learnedCommands.Keys)
-                {
-                    commands.Add($"Hal {trigger}");
-                    commands.Add($"Computer {trigger}");
-                }
-            }
-        }
-
-        var builder = new GrammarBuilder(commands);
-        var grammar = new Grammar(builder);
-        speechRecognizer.LoadGrammar(grammar);
-
-        // Dictation allows natural phrases after the wake word instead of
-        // requiring every possible sentence to be hard-coded.
-        if (!wakeOnly)
+        if (learnedCommands.Any())
         {
-            try
+            foreach (string trigger in learnedCommands.Keys)
             {
-                speechRecognizer.LoadGrammar(new DictationGrammar());
-            }
-            catch
-            {
+                commands.Add($"Hal {trigger}");
+                commands.Add($"Computer {trigger}");
             }
         }
 
-        //Allows Hal to recognize variable calculator commands
-        var calculatorBuilder = new GrammarBuilder();
+        GrammarBuilder websiteGrammar = new GrammarBuilder();
+        websiteGrammar.Append(new Choices("Hal go to", "Computer go to", "Hal goto", "Computer goto"));
+        websiteGrammar.AppendDictation();
+        speechRecognizer.LoadGrammar(new Grammar(websiteGrammar));
 
-        calculatorBuilder.Append("Hal");
+        GrammarBuilder searchGrammar = new GrammarBuilder();
+        searchGrammar.Append(new Choices("Hal search for", "Computer search for", "Hal search the web for", "Computer search the web for", "Hal search web for", "Computer search web for"));
+        searchGrammar.AppendDictation();
+        speechRecognizer.LoadGrammar(new Grammar(searchGrammar));
 
-        var calculatorActions = new Choices(
-            "type",
-            "input",
-            "enter",
-            "press",
-            "send"
-        );
-
-        calculatorBuilder.Append(calculatorActions);
-
-        // Allows number and math phrases after the command.
-        calculatorBuilder.AppendDictation();
-
-        var calculatorGrammar = new Grammar(calculatorActions);
-        speechRecognizer.LoadGrammar(calculatorGrammar);
+        GrammarBuilder commandBuilder = new GrammarBuilder(commands);
+        commandBuilder.Culture = new CultureInfo("en-US");
+        speechRecognizer.LoadGrammar(new Grammar(commandBuilder));
     }
 
-    // This method runs whenever the speech recognizer hears a phrase.
     private void SpeechRecognizer_SpeechRecognized(object? sender, SpeechRecognizedEventArgs e)
     {
-        if (e.Result != null)
+        if (e.Result == null) return;
+        string spokenText = e.Result.Text.Trim();
+        float confidence = e.Result.Confidence;
+        if (confidence < MinimumVoiceConfidence) return;
+
+        string? command = RemoveWakeWord(spokenText);
+        if (command == null) return;
+
+        if (!isListeningEnabled)
         {
-            string spokenCommand = e.Result.Text;
-            AddLog($"Heard: {spokenCommand}", true);
-
-            if (!isListeningEnabled)
-            {
-                string? commandWithoutWakeWord = null;
-
-                if (spokenCommand.StartsWith("Hal ", StringComparison.OrdinalIgnoreCase))
-                    commandWithoutWakeWord = spokenCommand.Substring(4).Trim();
-                else if (spokenCommand.StartsWith("Computer ", StringComparison.OrdinalIgnoreCase))
-                    commandWithoutWakeWord = spokenCommand.Substring("Computer ".Length).Trim();
-
-                if (commandWithoutWakeWord != null &&
-                    (commandWithoutWakeWord.Equals("wake up", StringComparison.OrdinalIgnoreCase) ||
-                     commandWithoutWakeWord.Equals("wake", StringComparison.OrdinalIgnoreCase)))
-                {
-                    WakeUp();
-                    return;
-                }
-
-                AddLog("Hal is asleep. Say 'Hal wake up' or 'Computer wake up' to resume listening.", true);
-                return;
-            }
-
-            if (spokenCommand.StartsWith("Hal ", StringComparison.OrdinalIgnoreCase))
-            {
-                string commandWithoutWakeWord = spokenCommand.Substring(4).Trim();
-                ExecuteCommand(commandWithoutWakeWord);
-            }
-            else if (spokenCommand.StartsWith("Computer ", StringComparison.OrdinalIgnoreCase))
-            {
-                string commandWithoutWakeWord = spokenCommand.Substring("Computer ".Length).Trim();
-                ExecuteCommand(commandWithoutWakeWord);
-            }
-            else
-            {
-                AddLog("Say 'Hal' or 'Computer' first to activate voice control.", true);
-            }
-        }
-    }
-
-    // This adds a message to the visible log window and optionally speaks it aloud.
-    private void AddLog(string message, bool speak = false)
-    {
-        logListBox.Items.Add($"{DateTime.Now:HH:mm:ss} - {message}");
-
-        if (logListBox.Items.Count > 20)
-        {
-            logListBox.Items.RemoveAt(0);
-        }
-
-        if (speak)
-        {
-            Speak(message);
-        }
-    }
-
-    // This sends a text message to the speech synthesizer so Hal can talk.
-    private void Speak(string message)
-    {
-        if (speechSynthesizer == null)
+            if (command.Equals("wake up", StringComparison.OrdinalIgnoreCase) || command.Equals("wake", StringComparison.OrdinalIgnoreCase)) WakeUp();
             return;
+        }
 
+        if (string.IsNullOrWhiteSpace(command))
+        {
+            AddLog($"Wake word detected ({confidence:P0})", false);
+            Speak("Yes?");
+            return;
+        }
+
+        AddLog($"Heard: {spokenText} [{confidence:P0}]", false);
+        ExecuteCommand(command);
+    }
+
+    private void SpeechRecognizer_SpeechRecognitionRejected(object? sender, SpeechRecognitionRejectedEventArgs e)
+    {
+        // Ignore uncertain/background speech.
+    }
+
+    private static string? RemoveWakeWord(string spokenText)
+    {
+        if (spokenText.Equals("Hal", StringComparison.OrdinalIgnoreCase)) return string.Empty;
+        if (spokenText.StartsWith("Hal ", StringComparison.OrdinalIgnoreCase)) return spokenText.Substring(4).Trim();
+        if (spokenText.Equals("Computer", StringComparison.OrdinalIgnoreCase)) return string.Empty;
+        if (spokenText.StartsWith("Computer ", StringComparison.OrdinalIgnoreCase)) return spokenText.Substring("Computer ".Length).Trim();
+        return null;
+    }
+
+    private void EnterSleepMode()
+    {
+        if (speechRecognizer == null) return;
+        isListeningEnabled = false;
+        AddLog("HAL entering standby mode.", false);
+        SpeakSleepResponse();
         try
         {
-            speechSynthesizer.SpeakAsync(message);
+            speechRecognizer.RecognizeAsyncCancel();
+            UpdateGrammar(wakeOnly: true);
+            speechRecognizer.RecognizeAsync(RecognizeMode.Multiple);
         }
-        catch
+        catch { }
+    }
+
+    private void WakeUp()
+    {
+        if (speechRecognizer == null) return;
+        isListeningEnabled = true;
+        try
         {
+            speechRecognizer.RecognizeAsyncCancel();
+            UpdateGrammar();
+            speechRecognizer.RecognizeAsync(RecognizeMode.Multiple);
+            AddLog("HAL is awake.", false);
+            Speak(string.IsNullOrWhiteSpace(assistantMemory.UserName) ? "I am awake and ready." : $"I am awake, {assistantMemory.UserName}. What do you need?");
+        }
+        catch (Exception ex)
+        {
+            AddLog($"Could not resume voice recognition: {ex.Message}", false);
         }
     }
 }
